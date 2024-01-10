@@ -16,13 +16,13 @@ FEATURE_FUNCTION = None
 
 match(_type_): 
     case 'pixel':
-        MODEL = torch.load("./data/models/pixel.pth")
+        MODEL = torch.load("./models/pixel.pth")
         FEATURE_FUNCTION = pixelFeatureFunction
     case 'pixelDensity':
-        MODEL = torch.load("./data/models/pixelDensity.pth")
+        MODEL = torch.load("./models/pixelDensity.pth")
         FEATURE_FUNCTION = pixelDensityFeatureFunction
     case 'imageGradientDensity':
-        MODEL = torch.load("./data/models/imageGradientDensity.pth")
+        MODEL = torch.load("./models/imageGradientDensity.pth")
         FEATURE_FUNCTION = imageGradientDensityFeatureFunction
 
 
