@@ -46,7 +46,7 @@ def loadSudokus(src: str) -> np.ndarray:
 
     print("(+) Reading data from .npy file...")
     data = np.load(f"{src}/data/data.npy", allow_pickle=True)
-    targets = np.load(f"{src}/data/targets.npy")
+    targets = np.load(f"{src}/data/targets.npy", allow_pickle=True)
 
     print("(+) Sudoku loading finished")
     return (data, targets)

@@ -41,7 +41,7 @@ def evaluateModelOnGeneratedDigits(model: torch.nn.Module, digits: tuple[np.ndar
 
     print(f'(+) Model evaluation finished')
 
-def evaluateModelOnSudokus(model: torch.nn.Module, featureFunction, sudokus: tuple[np.ndarray, np.ndarray]): 
+def evaluateModelOnSudokus(models: list[torch.nn.Module]|torch.nn.Module, featureFunctions: list[Callable]|Callable, sudokus: tuple[np.ndarray, np.ndarray]): 
 
     print(f'(+) Starting model evaluation...')
     totalSudokusFound = 0
@@ -65,7 +65,7 @@ def evaluateModelOnSudokus(model: torch.nn.Module, featureFunction, sudokus: tup
 
         cells = retrieveCellsFromSudokuImage(sudokuImageGrayScale)
 
-        sudoku = classifyCells(cells, model, featureFunction)
+        sudoku = classifyCells(cells, models, featureFunctions)
         totalSudokusFound += 1
 
         wouldHaveSolved = True

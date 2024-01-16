@@ -1,9 +1,11 @@
 import torch
 import numpy as np
 import cv2 as cv
+import matplotlib.pyplot as plt
 from imutils.perspective import four_point_transform
 from skimage.segmentation import clear_border
 from collections.abc import Callable
+
 
 '''
     Sudoku Detection
@@ -21,8 +23,8 @@ def applyInitialThreshold(image: np.ndarray) -> np.ndarray:
 
 def checkContoursForSize(image: np.ndarray, contours: list) -> list: 
 
-    inputImageHeightThreshold = [image.shape[0] * 0.95, image.shape[0], image.shape[0] * 1.05]
-    inputImageWidthThreshold = [image.shape[1] * 0.95, image.shape[1], image.shape[1] * 1.05]
+    inputImageHeightThreshold = [image.shape[0] * 0.95, image.shape[0]]
+    inputImageWidthThreshold = [image.shape[1] * 0.95, image.shape[1]]
     minRatioToImage = float(float(1)/float(3))
 
     contourSelection = []
@@ -31,10 +33,8 @@ def checkContoursForSize(image: np.ndarray, contours: list) -> list:
         x, y, w, h = cv.boundingRect(contour)
         if w < inputImageWidthThreshold[1] * minRatioToImage or h < inputImageHeightThreshold[1] * minRatioToImage:
             continue
-        if w > inputImageWidthThreshold[0] and w < inputImageWidthThreshold[2]: 
+        if w > inputImageWidthThreshold[0] or h > inputImageHeightThreshold[0]: 
             continue
-        if h > inputImageHeightThreshold[0] and h < inputImageHeightThreshold[2]: 
-           continue
         contourSelection.append(contour)
 
     return contourSelection
@@ -116,6 +116,14 @@ def preprocessCellImage(cellImage: np.ndarray):
         return False, None
     
     contour = max(contours, key=cv.contourArea)
+
+    (h, w) = thresh.shape
+
+    _, _, w_contour, h_contour = cv.boundingRect(contour)
+
+    if w_contour*h_contour < 0.04*h*w:
+        return False, None
+
     mask = np.zeros(thresh.shape, dtype=np.uint8)
     cv.drawContours(mask, [contour], -1, 255, cv.FILLED)
 
@@ -128,7 +136,13 @@ def preprocessCellImage(cellImage: np.ndarray):
     cellImage = cv.bitwise_and(thresh, thresh, mask=mask)
     return True, cellImage.astype(np.uint8)
 
-def classifyCells(cells: np.ndarray, model: torch.nn.Module, featureFunction: Callable): 
+def classifyCells(cells: np.ndarray, models: list[torch.nn.Module]|torch.nn.Module, featureFunctions: list[Callable]|Callable): 
+
+    if(not isinstance(models, list)):
+        models = [models]
+
+    if(not isinstance(featureFunctions, list)):
+        featureFunctions = [featureFunctions]
 
     sudoku = np.zeros((9, 9))
 
@@ -142,14 +156,31 @@ def classifyCells(cells: np.ndarray, model: torch.nn.Module, featureFunction: Ca
 
             cell = ((255 - cell) / 255).astype(np.uint8)
 
-            X: np.ndarray = featureFunction(cell)
-            X = torch.tensor(X, dtype=torch.float32)
-            y = model(X)
-            y = y.detach().cpu()
-            digit = torch.argmax(y, 0).item() + 1
-            sudoku[xIndex, yIndex] = digit
+            digitlist = []
+
+            for model, featureFunction in zip(models, featureFunctions):
+
+                X: np.ndarray = featureFunction(cell)
+                X = torch.tensor(X, dtype=torch.float32)
+                y = model(X)
+                y = y.detach().cpu()
+                digitlist.append(torch.argmax(y, 0).item() + 1)
+
+            sudoku[xIndex, yIndex]:int = voteForDigit(digitlist)
 
     return np.array(sudoku, dtype=np.uint8)
+
+def voteForDigit(digitlist: list[int]):
+
+    counts = {num: digitlist.count(num) for num in set(digitlist)} 
+
+    freq = {val:[i for i in counts.keys() if counts[i] == val] for val in counts.values()}
+
+    max_votes = freq[max(freq.keys())]
+
+    positions = {digitlist.index(num): num for num in max_votes}
+
+    return positions[min(positions.keys())]
 
 '''
     Sudoku Solving
@@ -201,15 +232,18 @@ def digitsInSudokuLines(sudoku: np.ndarray, x: int, y: int) -> np.ndarray:
 
 def createSudokuImageFromSudoku(sudoku: np.ndarray) -> np.ndarray:
 
-    sudokuImage = np.ones((900, 900), np.uint8) * 255
+    sudokuImage = np.ones((900, 900),) * 255
+    sudokuImage = sudokuImage.astype(np.uint8)
 
     for x in range(0, 9):
         for y in range(0, 9):
+            if sudoku[x, y] == 0:
+                continue
             text = str(sudoku[x, y])
             textSize = cv.getTextSize(text, cv.FONT_HERSHEY_PLAIN, 3, 2)[0]
-            sudokuImage = cv.putText(sudokuImage, text, (y * 100 + 50 - int(textSize[0] / 2), x * 100 + 50 + int(textSize[1] / 2)), cv.FONT_HERSHEY_PLAIN, 3, (0, 0, 0), 2, cv.LINE_AA)
+            sudokuImage = cv.putText(sudokuImage, text, (y * 100 + 50 - int(textSize[0] / 2), x * 100 + 50 + int(textSize[1] / 2)), cv.FONT_HERSHEY_PLAIN, 3, (0, 0, 0), 4, lineType=cv.LINE_8)
     
-    return sudokuImage
+    return sudokuImage.astype(np.uint8)
 
 '''
     Sudoku Image Remapping
@@ -220,8 +254,6 @@ def createReversedSudoku(image: np.ndarray, sudokuImage: np.ndarray, sudokuConto
     isRGB = False
     if len(image.shape) == 3 and image.shape[2] == 3:
         isRGB = True
-
-    sudokuImage = cv.resize(sudokuImage, (sudokuContours[2][0], sudokuContours[2][1]))
 
     dstPointsSortedByNorm = [(np.linalg.norm(point), point) for point in sudokuContours]
     dstPointsSortedByNorm.sort(key = lambda item: item[0])
@@ -238,8 +270,9 @@ def createReversedSudoku(image: np.ndarray, sudokuImage: np.ndarray, sudokuConto
                             [[sudokuImage.shape[1], sudokuImage.shape[0]]]], dtype=np.float32)
     dstPoints = dstPointsSortedByNorm.astype(np.float32)
 
-    reversedSudoku = cv.warpPerspective(sudokuImage, cv.getPerspectiveTransform(srcPoints, dstPoints), (image.shape[1], image.shape[0]))
+    reversedSudoku = cv.warpPerspective(255 - sudokuImage, cv.getPerspectiveTransform(srcPoints, dstPoints), (image.shape[1], image.shape[0]))
     reversedSudoku = reversedSudoku.astype(np.uint8)
+    _, reversedSudoku = cv.threshold(reversedSudoku, 128, 255, cv.THRESH_BINARY)
     if isRGB:
         reversedSudoku = np.array([reversedSudoku.copy(), reversedSudoku.copy(), reversedSudoku.copy()])
         reversedSudoku = np.transpose(reversedSudoku, (1, 2, 0))
@@ -256,31 +289,29 @@ def createSudokuMask(image: np.ndarray, sudokuContours: np.ndarray) -> np.ndarra
 def mapSudokuImageOnImage(image: np.ndarray, sudokuImage: np.ndarray, sudokuContours: np.ndarray) -> np.ndarray: 
 
     reversedSudoku = createReversedSudoku(image, sudokuImage, sudokuContours)
-
-    sudokuMask = createSudokuMask(image, sudokuContours)
-    maskedInput = np.zeros_like(image) + image * ( sudokuMask / 255 )
+    
+    reversedSudokuInverted = 255 - reversedSudoku
+    
+    redNumbers = reversedSudoku.copy()
+    redNumbers[:,:,0][redNumbers[:,:,0] == 255] = 0
+    redNumbers[:,:,1][redNumbers[:,:,1] == 255] = 0
+    
+    maskedInput = redNumbers + image * ( reversedSudokuInverted / 255 )
     maskedInput = maskedInput.astype(np.uint8)
 
-    output = reversedSudoku + maskedInput
-
-    return output.astype(np.uint8)
-
+    return maskedInput
 '''
     Sudoku Solver
 '''
 
-def solveSudokuInImage(image: np.ndarray, model: torch.nn.Module, featureFunction: Callable): 
+def solveSudokuInImage(image: np.ndarray, models: list[torch.nn.Module]|torch.nn.Module, featureFunctions: list[Callable]|Callable): 
 
     img = image.copy()
-    imgGray = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
-    sudokuImage, sudokuContours = detectSudokuInGrayScaleImage(imgGray)
-
-    if sudokuImage is None or sudokuContours is None: 
-        return None
+    sudokuImage, sudokuContours = detectSudokuInGrayScaleImage(img)
 
     cells = retrieveCellsFromSudokuImage(sudokuImage)
 
-    sudoku = classifyCells(cells, model, featureFunction)
+    sudoku = classifyCells(cells, models, featureFunctions)
     sudoku = sudoku.astype(np.uint8)
 
     isSolved, solvedSudoku = solveSudoku(sudoku.copy()) 
@@ -288,7 +319,10 @@ def solveSudokuInImage(image: np.ndarray, model: torch.nn.Module, featureFunctio
     if not isSolved: 
         return None
 
-    solvedSudokuImage = createSudokuImageFromSudoku(solvedSudoku)
-    output = mapSudokuImageOnImage(imgGray.copy(), solvedSudokuImage, sudokuContours)
+    mappingSudoku = np.zeros((9,9))
+    mappingSudoku = np.where(sudoku == 0, solvedSudoku, mappingSudoku).astype(np.uint8)
+    
+    solvedSudokuImage = createSudokuImageFromSudoku(mappingSudoku)
+    output = mapSudokuImageOnImage(img.copy(), solvedSudokuImage, sudokuContours)
 
     return output

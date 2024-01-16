@@ -2,48 +2,51 @@
 from src.feature_functions import *
 from src.sudoku_solver_functions import *
 from Models import PixelModel, PixelDensityModel, ImageGradientDensityModel
+from src.sudoku_functions import loadSudokus
 
 import cv2 as cv
 import torch
 from collections.abc import Callable
 
-_type_ = "pixel"
-# _type_ = "pixelGradient"
-# _type_ = "imageGradientDensity"
+modeltypes = ['pixel']
+#modeltypes = ['pixel', 'pixelGradient']
+#modeltypes = ['pixel', 'pixelGradient', 'imageGradientDensity']
 
-MODEL = None
-FEATURE_FUNCTION = None
+MODELS = []
+FEATURE_FUNCTIONS = []
 
-match(_type_): 
-    case 'pixel':
-        MODEL = torch.load("./models/pixel.pth")
-        FEATURE_FUNCTION = pixelFeatureFunction
-    case 'pixelDensity':
-        MODEL = torch.load("./models/pixelDensity.pth")
-        FEATURE_FUNCTION = pixelDensityFeatureFunction
-    case 'imageGradientDensity':
-        MODEL = torch.load("./models/imageGradientDensity.pth")
-        FEATURE_FUNCTION = imageGradientDensityFeatureFunction
+for type in modeltypes:
+
+    match(type): 
+        case 'pixel':
+            MODELS.append(torch.load("./models/pixel.pth"))
+            FEATURE_FUNCTIONS.append(pixelFeatureFunction)
+        case 'pixelDensity':
+            MODELS.append(torch.load("./models/pixelDensity.pth"))
+            FEATURE_FUNCTIONS.append(pixelDensityFeatureFunction)
+        case 'imageGradientDensity':
+            MODELS.append(torch.load("./models/imageGradientDensity.pth"))
+            FEATURE_FUNCTIONS.append(imageGradientDensityFeatureFunction)
 
 
-def testImage(pathToImage: str, model: torch.nn.Module, featureFunction: Callable): 
+def testImage(Image: np.ndarray, models: list[torch.nn.Module], featureFunctions: list[Callable]): 
 
-    frame = cv.imread(pathToImage)
+    frame = Image
 
     if frame is None: 
         cv.destroyAllWindows()
         return
+    
+    cv.imshow('frame', frame)
 
-    output = solveSudokuInImage(frame, model, featureFunction)
+    output = solveSudokuInImage(frame, models, featureFunctions)
 
-    if output is None: 
-        cv.imshow('frame', frame)
-    else: 
-        cv.imshow('frame', frame)
+    if(output is not None): 
         cv.imshow('output', output)
 
-    cv.waitKey(10000)
+    cv.waitKey(5000)
     cv.destroyAllWindows()
+
 
 def testVideo(pathToVideo: str, model: torch.nn.Module, featureFunction: Callable): 
 
@@ -75,8 +78,12 @@ def testVideo(pathToVideo: str, model: torch.nn.Module, featureFunction: Callabl
     cv.destroyAllWindows()
 
 
+
 if __name__ == '__main__':
-    testImage('C:\dev\Sudoku-Solver\demo.jpg', MODEL, FEATURE_FUNCTION)
+
+    img_path = "data/sudokus"
+    image = loadSudokus(img_path)[0][46]
+    testImage(image, MODELS, FEATURE_FUNCTIONS)
     # testImage('C:\dev\Sudoku-Solver\data\sudokus\plain\image202.jpg', MODEL, FEATURE_FUNCTION)
     # testVideo('C:\dev\Sudoku-Solver\demo.mp4', MODEL, FEATURE_FUNCTION)
     pass
